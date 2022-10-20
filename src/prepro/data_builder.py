@@ -15,7 +15,7 @@ from multiprocess import Pool
 
 from others.logging import logger
 from others.tokenization import BertTokenizer
-from pytorch_transformers import XLNetTokenizer
+from transformers import XLNetTokenizer
 
 from others.utils import clean
 from prepro.utils import _get_word_ngrams
@@ -30,6 +30,9 @@ def recover_from_corenlp(s):
     s = re.sub(r'\'\' {\w}', '\'\'\g<1>', s)
 
 
+def load_json_huizong2(p, lower):
+    """<mtian> implement for huizong2"""
+    pass
 
 def load_json(p, lower):
     source = []
@@ -40,6 +43,7 @@ def load_json(p, lower):
         if (lower):
             tokens = [t.lower() for t in tokens]
         if (tokens[0] == '@highlight'):
+            # <mtian> this is where target summarization is extracted! 
             flag = True
             tgt.append([])
             continue
@@ -333,28 +337,32 @@ def format_to_lines(args):
     for corpus_type in ['valid', 'test', 'train']:
         temp = []
         for line in open(pjoin(args.map_path, 'mapping_' + corpus_type + '.txt')):
-            temp.append(hashhex(line.strip()))
+            # temp.append(hashhex(line.strip()))
+            temp.append(line.strip())
         corpus_mapping[corpus_type] = {key.strip(): 1 for key in temp}
     train_files, valid_files, test_files = [], [], []
     for f in glob.glob(pjoin(args.raw_path, '*.json')):
-        real_name = f.split('/')[-1].split('.')[0]
+        # real_name = f.split('/')[-1].split('.')[0]
+        real_name = f.split('/')[-1].rstrip('.json')
+        
         if (real_name in corpus_mapping['valid']):
             valid_files.append(f)
-        elif (real_name in corpus_mapping['test']):
+        if (real_name in corpus_mapping['test']):
             test_files.append(f)
-        elif (real_name in corpus_mapping['train']):
+        if (real_name in corpus_mapping['train']):
             train_files.append(f)
         # else:
         #     train_files.append(f)
-
     corpora = {'train': train_files, 'valid': valid_files, 'test': test_files}
     for corpus_type in ['train', 'valid', 'test']:
+
         a_lst = [(f, args) for f in corpora[corpus_type]]
         pool = Pool(args.n_cpus)
         dataset = []
         p_ct = 0
         for d in pool.imap_unordered(_format_to_lines, a_lst):
             dataset.append(d)
+            print(dataset)
             if (len(dataset) > args.shard_size):
                 pt_file = "{:s}.{:s}.{:d}.json".format(args.save_path, corpus_type, p_ct)
                 with open(pt_file, 'w') as save:
