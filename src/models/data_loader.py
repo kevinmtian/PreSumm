@@ -79,6 +79,15 @@ def load_dataset(args, corpus_type, shuffle):
         dataset = torch.load(pt_file)
         logger.info('Loading %s dataset from %s, number of examples: %d' %
                     (corpus_type, pt_file, len(dataset)))
+        # <mtian> dataset is a list length equal to number of abstract
+        # (Pdb) dataset[0].keys()
+        # dict_keys(['src', 'tgt', 'src_sent_labels', 'segs', 'clss', 'src_txt', 'tgt_txt'])
+        # src, tgt is encoded tokens (digits) 
+        # src_sent_labels length = number of sentences in src, through greedy search of tgt in src
+        # segs is the same len of src, segmenting sentences
+        # clss is the index in the src array where [cls] token is there
+        # src_txt is a list of sentences, len = number of sentences
+        # tgt_txt is an integrated string with <q> seperating them
         return dataset
 
     # Sort the glob output by file name (by increasing indexes).
@@ -111,6 +120,7 @@ def abs_batch_size_fn(new, count):
 
 
 def ext_batch_size_fn(new, count):
+    # <mtian> batch size is in terms of tokens! Not sentences of documents!
     if (len(new) == 4):
         pass
     src, labels = new[0], new[4]
