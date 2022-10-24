@@ -202,6 +202,8 @@ class Trainer(object):
             valid_iter: validate data iterator
         Returns:
             :obj:`nmt.Statistics`: validation loss statistics
+
+        # <mtian> this writes predicted results into a file
         """
 
         # Set model in validating mode.
