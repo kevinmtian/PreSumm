@@ -88,6 +88,8 @@ def load_dataset(args, corpus_type, shuffle):
         # clss is the index in the src array where [cls] token is there
         # src_txt is a list of sentences, len = number of sentences
         # tgt_txt is an integrated string with <q> seperating them
+
+        # so far the order was reserved
         return dataset
 
     # Sort the glob output by file name (by increasing indexes).
