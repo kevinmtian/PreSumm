@@ -232,6 +232,18 @@ class Trainer(object):
         gold_path = '%s_%s_step%d.gold' % (self.args.result_path, self.args.test_partition, step)
         src_path = '%s_%s_step%d.src' % (self.args.result_path, self.args.test_partition, step)
 
+        
+        # if sentence order and label matches, then it is a tp
+        # if it is a miss, then it is a miss (false positive OR false negative)
+        # we could compute recall: tp / (false negative + real positive)
+        # precision = tp / (false positive + real positive)
+        
+        precision = None
+        recall = None
+        tp = 0
+        fp = 0
+        fn = 0
+
         with open(can_path, 'w') as save_pred:
             with open(gold_path, 'w') as save_gold:
                 with open(src_path, 'w') as save_src:
@@ -264,12 +276,61 @@ class Trainer(object):
                                 sent_scores = sent_scores + mask.float()
                                 sent_scores = sent_scores.cpu().data.numpy()
                                 selected_ids = np.argsort(-sent_scores, 1)
+                                # import pdb; pdb.set_trace()
+
+                            # collect precision and recall computation
+                            first_idx = selected_ids[:, 0]
+                            for ii in range(labels.shape[0]):
+                                if labels[ii, first_idx[ii]] == 1:
+                                    tp += 1
+                                else:
+                                    # it is a miss
+                                    # it will be both a false positive and a false negative!
+                                    fp += 1
+                                    fn += 1
+
+                            # (Pdb) pp labels
+                            # tensor([[1, 0, 0, 0, 0, 0, 0],
+                            #         [0, 1, 0, 0, 0, 0, 0],
+                            #         [0, 1, 0, 0, 0, 0, 0],
+                            #         [0, 1, 0, 0, 0, 0, 0],
+                            #         [0, 1, 0, 0, 0, 0, 0],
+                            #         [0, 1, 0, 0, 0, 0, 0],
+                            #         [0, 0, 1, 0, 0, 0, 0],
+                            #         [0, 0, 1, 0, 0, 0, 0],
+                            #         [1, 0, 0, 0, 0, 0, 0],
+                            #         [0, 0, 1, 0, 0, 0, 0],
+                            #         [0, 1, 0, 0, 0, 0, 0],
+                            #         [1, 0, 0, 0, 0, 0, 0],
+                            #         [0, 1, 0, 0, 0, 0, 0],
+                            #         [0, 0, 1, 0, 0, 0, 0],
+                            #         [0, 0, 0, 1, 0, 0, 0],
+                            #         [1, 0, 0, 0, 0, 0, 0]], device='cuda:0')
                             # selected_ids = np.sort(selected_ids,1)
+                            # (Pdb) selected_ids
+                            # array([[0, 1, 2, 3, 4, 5, 6],
+                            #     [1, 0, 2, 3, 4, 5, 6],
+                            #     [1, 0, 2, 3, 4, 5, 6],
+                            #     [1, 0, 2, 3, 4, 5, 6],
+                            #     [1, 0, 2, 3, 4, 5, 6],
+                            #     [0, 1, 2, 3, 4, 5, 6],
+                            #     [2, 1, 0, 3, 4, 5, 6],
+                            #     [2, 1, 4, 0, 3, 5, 6],
+                            #     [0, 2, 1, 3, 4, 5, 6],
+                            #     [2, 3, 0, 5, 4, 1, 6],
+                            #     [1, 0, 2, 4, 5, 3, 6],
+                            #     [0, 2, 1, 3, 4, 5, 6],
+                            #     [1, 0, 3, 2, 4, 5, 6],
+                            #     [2, 0, 3, 1, 5, 4, 6],
+                            #     [3, 2, 1, 4, 0, 5, 6],
+                            #     [0, 4, 3, 5, 2, 1, 6]])
+
                             for i, idx in enumerate(selected_ids):
                                 _pred = []
                                 if (len(batch.src_str[i]) == 0):
                                     continue
                                 for j in selected_ids[i][:len(batch.src_str[i])]:
+                                    # cut off by real sentence length
                                     if (j >= len(batch.src_str[i])):
                                         continue
                                     candidate = batch.src_str[i][j].strip()
@@ -284,6 +345,7 @@ class Trainer(object):
 
                                 _pred = '<q>'.join(_pred)
                                 if (self.args.recall_eval):
+                                    """this is a problem since the order might not be exactly the same!"""
                                     _pred = ' '.join(_pred.split()[:len(batch.tgt_str[i].split())])
 
                                 pred.append(_pred)
@@ -301,6 +363,9 @@ class Trainer(object):
             logger.info('Rouges at step %d \n%s' % (step, rouge_results_to_str(rouges)))
         self._report_step(0, step, valid_stats=stats)
 
+
+        recall_ = tp / (fn + tp)
+        print(f"recall = {recall_}")
         return stats
 
     def _gradient_accumulation(self, true_batchs, normalization, total_stats,
