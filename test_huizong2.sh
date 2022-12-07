@@ -55,7 +55,7 @@ BERT_DATA_PATH="/data/tianmu/data/PreSumm/huizong2/story_bert"
 MODEL_PATH="/data/tianmu/checkpoints/PreSumm/huizong2/story"
 LOG_FILE="/data/tianmu/checkpoints/PreSumm/huizong2/story/test.log"
 MODEL_CHECKPOINT="/data/tianmu/checkpoints/PreSumm/huizong2/story/model_step_2000.pt"
-RESULT_PATH="/data/tianmu/checkpoints/PreSumm/huizong2/story/result2"
+RESULT_PATH="/data/tianmu/checkpoints/PreSumm/huizong2/story/result3"
 TEMP_DIR="/data/tianmu/checkpoints/PreSumm/huizong2/story/temp2"
 
 mkdir -p $RESULT_PATH
@@ -81,15 +81,11 @@ CUDA_VISIBLE_DEVICES=0 python src/train.py -task ext \
 -temp_dir $TEMP_DIR \
 -warmup_steps 10000 \
 -max_pos 512 \
--recall_eval false \
 
 
 # report results
 python src/report_huizong2.py
 # <mtian> the orders of generated pred and raw text does not match, look into how test populates the candidates sequence
-
-
-
 
 
 # python train.py -task abs -mode validate -batch_size 3000 \

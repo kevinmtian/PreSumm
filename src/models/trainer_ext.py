@@ -229,9 +229,9 @@ class Trainer(object):
         stats = Statistics()
 
         can_path = '%s_%s_step%d.candidate' % (self.args.result_path, self.args.test_partition, step)
+        can_sentence_path = '%s_%s_step%d.candidate_sentence' % (self.args.result_path, self.args.test_partition, step)
         gold_path = '%s_%s_step%d.gold' % (self.args.result_path, self.args.test_partition, step)
         src_path = '%s_%s_step%d.src' % (self.args.result_path, self.args.test_partition, step)
-
         
         # if sentence order and label matches, then it is a tp
         # if it is a miss, then it is a miss (false positive OR false negative)
@@ -244,120 +244,99 @@ class Trainer(object):
         fp = 0
         fn = 0
 
-        with open(can_path, 'w') as save_pred:
-            with open(gold_path, 'w') as save_gold:
-                with open(src_path, 'w') as save_src:
-                    with torch.no_grad():
-                        for batch in test_iter:
-                            src = batch.src
-                            labels = batch.src_sent_labels
-                            segs = batch.segs
-                            clss = batch.clss
-                            mask = batch.mask_src
-                            mask_cls = batch.mask_cls
+        with open(can_path, 'w') as save_pred, open(can_sentence_path, 'w') as save_pred_sentence, open(gold_path, 'w') as save_gold, open(src_path, 'w') as save_src:
+            src_str_ = []
+            gold = []
+            pred = []
+            # instead of clipping into words, we record the most-likely sentence
+            pred_sentence = []
+            with torch.no_grad():                
+                for batch in test_iter:
+                    src = batch.src
+                    labels = batch.src_sent_labels
+                    segs = batch.segs
+                    clss = batch.clss
+                    mask = batch.mask_src
+                    mask_cls = batch.mask_cls
+                    
+                    if (cal_lead):
+                        selected_ids = [list(range(batch.clss.size(1)))] * batch.batch_size
+                    elif (cal_oracle):
+                        selected_ids = [[j for j in range(batch.clss.size(1)) if labels[i][j] == 1] for i in
+                                        range(batch.batch_size)]
+                    else:
+                        sent_scores, mask = self.model(src, segs, clss, mask, mask_cls)
 
-                            src_str_ = []
-                            gold = []
-                            pred = []
+                        loss = self.loss(sent_scores, labels.float())
+                        loss = (loss * mask.float()).sum()
+                        batch_stats = Statistics(float(loss.cpu().data.numpy()), len(labels))
+                        stats.update(batch_stats)
 
-                            if (cal_lead):
-                                selected_ids = [list(range(batch.clss.size(1)))] * batch.batch_size
-                            elif (cal_oracle):
-                                selected_ids = [[j for j in range(batch.clss.size(1)) if labels[i][j] == 1] for i in
-                                                range(batch.batch_size)]
+                        sent_scores = sent_scores + mask.float()
+                        sent_scores = sent_scores.cpu().data.numpy()
+                        selected_ids = np.argsort(-sent_scores, 1)
+                        # import pdb; pdb.set_trace()
+
+                    # collect precision and recall computation
+                    first_idx = selected_ids[:, 0]
+                    for ii in range(labels.shape[0]):
+                        if labels[ii, first_idx[ii]] == 1:
+                            tp += 1
+                        else:
+                            # it is a miss
+                            # it will be both a false positive and a false negative!
+                            fp += 1
+                            fn += 1
+
+                    # (Pdb) pp labels
+                    # tensor([[1, 0, 0, 0, 0, 0, 0],
+                    #         [0, 1, 0, 0, 0, 0, 0],
+
+                    # selected_ids = np.sort(selected_ids,1)
+                    # (Pdb) selected_ids
+                    # array([[0, 1, 2, 3, 4, 5, 6],
+                    #     [1, 0, 2, 3, 4, 5, 6],
+
+                    for i, idx in enumerate(selected_ids):
+                        _pred = []
+                        if (len(batch.src_str[i]) == 0):
+                            continue
+                        for j in selected_ids[i][:len(batch.src_str[i])]:
+                            # <mtian> can we record the entire sentence? It is possible that the answer does not have to be the first 
+                            # few words, but instead the entire sentence!
+                            
+                            # cut off by real sentence length
+                            if (j >= len(batch.src_str[i])):
+                                continue
+                            candidate = batch.src_str[i][j].strip()
+                            if (self.args.block_trigram):
+                                if (not _block_tri(candidate, _pred)):
+                                    _pred.append(candidate)
                             else:
-                                sent_scores, mask = self.model(src, segs, clss, mask, mask_cls)
+                                _pred.append(candidate)
 
-                                loss = self.loss(sent_scores, labels.float())
-                                loss = (loss * mask.float()).sum()
-                                batch_stats = Statistics(float(loss.cpu().data.numpy()), len(labels))
-                                stats.update(batch_stats)
-
-                                sent_scores = sent_scores + mask.float()
-                                sent_scores = sent_scores.cpu().data.numpy()
-                                selected_ids = np.argsort(-sent_scores, 1)
-                                # import pdb; pdb.set_trace()
-
-                            # collect precision and recall computation
-                            first_idx = selected_ids[:, 0]
-                            for ii in range(labels.shape[0]):
-                                if labels[ii, first_idx[ii]] == 1:
-                                    tp += 1
-                                else:
-                                    # it is a miss
-                                    # it will be both a false positive and a false negative!
-                                    fp += 1
-                                    fn += 1
-
-                            # (Pdb) pp labels
-                            # tensor([[1, 0, 0, 0, 0, 0, 0],
-                            #         [0, 1, 0, 0, 0, 0, 0],
-                            #         [0, 1, 0, 0, 0, 0, 0],
-                            #         [0, 1, 0, 0, 0, 0, 0],
-                            #         [0, 1, 0, 0, 0, 0, 0],
-                            #         [0, 1, 0, 0, 0, 0, 0],
-                            #         [0, 0, 1, 0, 0, 0, 0],
-                            #         [0, 0, 1, 0, 0, 0, 0],
-                            #         [1, 0, 0, 0, 0, 0, 0],
-                            #         [0, 0, 1, 0, 0, 0, 0],
-                            #         [0, 1, 0, 0, 0, 0, 0],
-                            #         [1, 0, 0, 0, 0, 0, 0],
-                            #         [0, 1, 0, 0, 0, 0, 0],
-                            #         [0, 0, 1, 0, 0, 0, 0],
-                            #         [0, 0, 0, 1, 0, 0, 0],
-                            #         [1, 0, 0, 0, 0, 0, 0]], device='cuda:0')
-                            # selected_ids = np.sort(selected_ids,1)
-                            # (Pdb) selected_ids
-                            # array([[0, 1, 2, 3, 4, 5, 6],
-                            #     [1, 0, 2, 3, 4, 5, 6],
-                            #     [1, 0, 2, 3, 4, 5, 6],
-                            #     [1, 0, 2, 3, 4, 5, 6],
-                            #     [1, 0, 2, 3, 4, 5, 6],
-                            #     [0, 1, 2, 3, 4, 5, 6],
-                            #     [2, 1, 0, 3, 4, 5, 6],
-                            #     [2, 1, 4, 0, 3, 5, 6],
-                            #     [0, 2, 1, 3, 4, 5, 6],
-                            #     [2, 3, 0, 5, 4, 1, 6],
-                            #     [1, 0, 2, 4, 5, 3, 6],
-                            #     [0, 2, 1, 3, 4, 5, 6],
-                            #     [1, 0, 3, 2, 4, 5, 6],
-                            #     [2, 0, 3, 1, 5, 4, 6],
-                            #     [3, 2, 1, 4, 0, 5, 6],
-                            #     [0, 4, 3, 5, 2, 1, 6]])
-
-                            for i, idx in enumerate(selected_ids):
-                                _pred = []
-                                if (len(batch.src_str[i]) == 0):
-                                    continue
-                                for j in selected_ids[i][:len(batch.src_str[i])]:
-                                    # cut off by real sentence length
-                                    if (j >= len(batch.src_str[i])):
-                                        continue
-                                    candidate = batch.src_str[i][j].strip()
-                                    if (self.args.block_trigram):
-                                        if (not _block_tri(candidate, _pred)):
-                                            _pred.append(candidate)
-                                    else:
-                                        _pred.append(candidate)
-
-                                    if ((not cal_oracle) and (not self.args.recall_eval) and len(_pred) == 3):
-                                        break
-
-                                _pred = '<q>'.join(_pred)
-                                if (self.args.recall_eval):
-                                    """this is a problem since the order might not be exactly the same!"""
-                                    _pred = ' '.join(_pred.split()[:len(batch.tgt_str[i].split())])
-
-                                pred.append(_pred)
-                                gold.append(batch.tgt_str[i])
-                                src_str_.append(" ".join(batch.src_str[i]))
-
-                            for i in range(len(gold)):
-                                save_gold.write(gold[i].strip() + '\n')
-                            for i in range(len(pred)):
-                                save_pred.write(pred[i].strip() + '\n')
-                            for i in range(len(src_str_)):
-                                save_src.write(src_str_[i].strip() + '\n')
+                            if ((not cal_oracle) and (not self.args.recall_eval) and len(_pred) == 3):
+                                break
+                        _pred_sentence = _pred[0]
+                        _pred = '<q>'.join(_pred)
+                        if (self.args.recall_eval):
+                            """this is a problem since the order might not be exactly the same!
+                            can we report the entire sentence instead of just first a few words?
+                            <mtian>
+                            """
+                            _pred = ' '.join(_pred.split()[:len(batch.tgt_str[i].split())])
+                        pred_sentence.append(_pred_sentence)
+                        pred.append(_pred)
+                        gold.append(batch.tgt_str[i])
+                        src_str_.append(" ".join(batch.src_str[i]))
+            for i in range(len(gold)):
+                save_gold.write(gold[i].strip() + '\n')
+            for i in range(len(pred_sentence)):
+                save_pred_sentence.write(pred_sentence[i].strip() + '\n')
+            for i in range(len(pred)):
+                save_pred.write(pred[i].strip() + '\n')
+            for i in range(len(src_str_)):
+                save_src.write(src_str_[i].strip() + '\n')
         if (step != -1 and self.args.report_rouge):
             rouges = test_rouge(self.args.temp_dir, can_path, gold_path)
             logger.info('Rouges at step %d \n%s' % (step, rouge_results_to_str(rouges)))
